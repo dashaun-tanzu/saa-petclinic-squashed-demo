@@ -5,8 +5,8 @@ DEMO_START=$(date +%s)
 TEMP_DIR="upgrade-example"
 
 # Java version configuration
-JAVA8_VERSION="8.0.462-librca"
-JAVA25_VERSION="25-librca"
+JAVA8_VERSION="8.0.472-librca"
+JAVA25_VERSION="25.0.1-librca"
 
 # Function to check if a command exists
 check_dependency() {
@@ -253,12 +253,12 @@ function statsSoFarTableColored {
   START1=$(startupTime 'java8with1.5.log')
   printf "${RED}%-35s %-25s %-15s %s${NC}\n" "Spring Boot 2.7.3 with Java 8" "$START1" "$MEM1" "-"
 
-  # Spring Boot 3.5 with Java25 (Green - improved)
-  MEM2=$(cat java25with3.5.log2)
+  # Spring Boot 4.0 with Java25 (Green - improved)
+  MEM2=$(cat java25with4.0.log2)
   PERC2=$(bc <<< "scale=2; 100 - ${MEM2}/${MEM1}*100")
-  START2=$(startupTime 'java25with3.5.log')
+  START2=$(startupTime 'java25with4.0.log')
   PERCSTART2=$(bc <<< "scale=2; 100 - ${START2}/${START1}*100")
-  printf "${GREEN}%-35s %-25s %-15s %s ${NC}\n" "Spring Boot 3.5 with Java 25" "$START2 ($PERCSTART2% faster)" "$MEM2" "$PERC2%"
+  printf "${GREEN}%-35s %-25s %-15s %s ${NC}\n" "Spring Boot 4.0 with Java 25" "$START2 ($PERCSTART2% faster)" "$MEM2" "$PERC2%"
 
   echo -e "${WHITE}--------------------------------------------------------------------------------------------${NC}"
   DEMO_STOP=$(date +%s)
@@ -303,11 +303,11 @@ advisorUpgradePlanApplySquash
 talkingPoint
 useJava25
 talkingPoint
-springBootStart java25with3.5.log
+springBootStart java25with4.0.log
 talkingPoint
 validateApp
 talkingPoint
-showMemoryUsage "$(jps | grep 'PetClinicApplication' | cut -d ' ' -f 1)" java25with3.5.log2
+showMemoryUsage "$(jps | grep 'PetClinicApplication' | cut -d ' ' -f 1)" java25with4.0.log2
 talkingPoint
 springBootStop
 talkingPoint
