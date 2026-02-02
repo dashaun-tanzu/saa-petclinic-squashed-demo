@@ -5,8 +5,8 @@ DEMO_START=$(date +%s)
 TEMP_DIR="upgrade-example"
 
 # Java version configuration
-JAVA8_VERSION="8.0.472-librca"
-JAVA25_VERSION="25.0.1-librca"
+JAVA8_VERSION="8.0.482-librca"
+JAVA25_VERSION="25.0.2-librca"
 
 # Function to check if a command exists
 check_dependency() {
@@ -215,7 +215,7 @@ function advisorUpgradePlanGet {
 
 function advisorUpgradePlanApplySquash {
   displayMessage "Do all the upgrades!"
-  pei "advisor upgrade-plan apply --squash 8"
+  pei "advisor upgrade-plan apply --squash 9"
 }
 
 # Display a message with a header
