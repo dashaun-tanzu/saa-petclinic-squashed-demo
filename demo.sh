@@ -4,15 +4,16 @@ DEMO_START=$(date +%s)
 
 TEMP_DIR="upgrade-example"
 
-# Java version configuration
-JAVA8_VERSION="8.0.482-librca"
-JAVA25_VERSION="25.0.2-librca"
+# Java versions are sourced from .sdkmanrc (one `java=<version>` line per major).
+SDKMANRC="$(dirname "$0")/.sdkmanrc"
+JAVA8_VERSION=$(grep  '^java=8\.'           "$SDKMANRC" | cut -d'=' -f2)
+JAVA25_VERSION=$(grep '^java=25\..*-librca' "$SDKMANRC" | cut -d'=' -f2)
 
 # Function to check if a command exists
 check_dependency() {
   local cmd=$1
   local install_msg=$2
-  
+
   if ! command -v "$cmd" &> /dev/null; then
     echo "$cmd not found. $install_msg"
     return 1
@@ -23,23 +24,76 @@ check_dependency() {
 # Check all required dependencies
 check_dependencies() {
   local missing_deps=()
-  
+
   # Check dependencies in parallel by storing results
   check_dependency "vendir" "Please install vendir first." || missing_deps+=("vendir")
   check_dependency "http" "Please install httpie first." || missing_deps+=("httpie")
   check_dependency "bc" "Please install bc first." || missing_deps+=("bc")
   check_dependency "git" "Please install git first." || missing_deps+=("git")
-  
+  check_dependency "mvn" "Please install Maven first." || missing_deps+=("mvn")
+  check_dependency "tar" "Please install tar first." || missing_deps+=("tar")
+
   if [ ${#missing_deps[@]} -gt 0 ]; then
     echo "Missing dependencies: ${missing_deps[*]}"
     exit 1
   fi
-  
+
   echo "All dependencies found."
+}
+
+# Verify required environment variables are set
+check_env_vars() {
+  local missing_vars=()
+  [[ -z "${ADVISOR_VERSION}" ]] && missing_vars+=("ADVISOR_VERSION")
+  if [ ${#missing_vars[@]} -gt 0 ]; then
+    echo "Missing required environment variables: ${missing_vars[*]}"
+    echo "Set ADVISOR_VERSION (e.g. export ADVISOR_VERSION=1.6.2) and re-run."
+    exit 1
+  fi
+}
+
+# Resolve the advisor CLI artifact id for the current OS/arch
+advisor_artifact_id() {
+  local os arch
+  os=$(uname -s)
+  arch=$(uname -m)
+  case "$os" in
+    Darwin)
+      if [[ "$arch" == "arm64" ]]; then
+        echo "application-advisor-cli-macos-arm64"
+      else
+        echo "application-advisor-cli-macos"
+      fi
+      ;;
+    Linux)
+      echo "application-advisor-cli-linux"
+      ;;
+    MINGW*|MSYS*|CYGWIN*|Windows_NT)
+      echo "application-advisor-cli-windows"
+      ;;
+    *)
+      echo "Unsupported OS: $os" >&2
+      return 1
+      ;;
+  esac
+}
+
+# Download the pinned advisor CLI tar via Maven and extract into the cwd.
+# Must be invoked while cwd is the upgrade-example dir.
+download_advisor() {
+  local artifact tar_file
+  artifact=$(advisor_artifact_id) || exit 1
+  tar_file="${HOME}/.m2/repository/com/vmware/tanzu/spring/${artifact}/${ADVISOR_VERSION}/${artifact}-${ADVISOR_VERSION}.tar"
+
+  displayMessage "Download Spring Application Advisor CLI ${ADVISOR_VERSION} (${artifact})"
+  pei "mvn -U -q dependency:get -Dartifact=com.vmware.tanzu.spring:${artifact}:${ADVISOR_VERSION}:tar -Dtransitive=false"
+  pei "tar -xf \"${tar_file}\" -C ."
+  pei "./cli-binary/advisor --version"
 }
 
 # Load helper functions and set initial variables
 check_dependencies
+check_env_vars
 
 vendir sync
 . ./vendir/demo-magic/demo-magic.sh
@@ -75,16 +129,8 @@ function talkingPoint() {
   clear
 }
 
-# Check if Java version is already installed
-check_java_installed() {
-  local version=$1
-  sdk list java | grep -q "$version" && sdk list java | grep "$version" | grep -q "installed"
-}
-
-# Initialize SDKMAN and install required Java versions
 function initSDKman() {
-  local sdkman_init
-  sdkman_init="${SDKMAN_DIR:-$HOME/.sdkman}/bin/sdkman-init.sh"
+  local sdkman_init="${SDKMAN_DIR:-$HOME/.sdkman}/bin/sdkman-init.sh"
   if [[ -f "$sdkman_init" ]]; then
     # shellcheck disable=SC1090
     source "$sdkman_init"
@@ -92,24 +138,10 @@ function initSDKman() {
     echo "SDKMAN not found. Please install SDKMAN first."
     exit 1
   fi
-  
-  echo "Updating SDKMAN..."
-  sdk update
-  
-  # Install Java versions only if not already installed
-  if ! check_java_installed "$JAVA8_VERSION"; then
-    echo "Installing Java $JAVA8_VERSION..."
-    sdk install java "$JAVA8_VERSION"
-  else
-    echo "Java $JAVA8_VERSION already installed."
-  fi
-  
-  if ! check_java_installed "$JAVA25_VERSION"; then
-    echo "Installing Java $JAVA25_VERSION..."
-    sdk install java "$JAVA25_VERSION"
-  else
-    echo "Java $JAVA25_VERSION already installed."
-  fi
+
+  # Install any Java versions declared in .sdkmanrc that aren't yet present.
+  # `sdk env install` reads .sdkmanrc from cwd, so cd there in a subshell.
+  (cd "$(dirname "$SDKMANRC")" && sdk env install)
 }
 
 # Prepare the working directory
@@ -178,7 +210,7 @@ function showMemoryUsage {
 
 function advisorBuildConfig {
   displayMessage "Capture some metadata about the application with Advisor"
-  pei "advisor build-config get"
+  pei "./cli-binary/advisor build-config get"
 }
 
 function showBuildConfigKeys {
@@ -210,12 +242,12 @@ function showBuildConfigTools {
 
 function advisorUpgradePlanGet {
   displayMessage "How hard could it be to upgrade? Let's get a plan!"
-  pei "advisor upgrade-plan get"
+  pei "./cli-binary/advisor upgrade-plan get"
 }
 
 function advisorUpgradePlanApplySquash {
   displayMessage "Do all the upgrades!"
-  pei "advisor upgrade-plan apply --squash 9"
+  pei "./cli-binary/advisor upgrade-plan apply --squash 9"
 }
 
 # Display a message with a header
@@ -276,6 +308,8 @@ init
 useJava8
 talkingPoint
 cloneApp
+talkingPoint
+download_advisor
 talkingPoint
 springBootStart java8with1.5.log
 talkingPoint

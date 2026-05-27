@@ -1,4 +1,5 @@
 .idea
+.envrc
 vendir.lock.yml
 upgrade-example
 vendir
