@@ -9,6 +9,11 @@ SDKMANRC="$(dirname "$0")/.sdkmanrc"
 JAVA8_VERSION=$(grep  '^java=8\.'           "$SDKMANRC" | cut -d'=' -f2)
 JAVA25_VERSION=$(grep '^java=25\..*-librca' "$SDKMANRC" | cut -d'=' -f2)
 
+# Spring Application Advisor is run through the Tanzu Spring Maven plugin
+# (tanzu-spring:advisor). The plugin resolves the Application Advisor CLI binary
+# from the build repositories, so no separate CLI download or extraction needed.
+ADVISOR_PLUGIN="./mvnw tanzu-spring:advisor -DadvisorVersion=${ADVISOR_VERSION}"
+
 # Function to check if a command exists
 check_dependency() {
   local cmd=$1
@@ -52,43 +57,11 @@ check_env_vars() {
   fi
 }
 
-# Resolve the advisor CLI artifact id for the current OS/arch
-advisor_artifact_id() {
-  local os arch
-  os=$(uname -s)
-  arch=$(uname -m)
-  case "$os" in
-    Darwin)
-      if [[ "$arch" == "arm64" ]]; then
-        echo "application-advisor-cli-macos-arm64"
-      else
-        echo "application-advisor-cli-macos"
-      fi
-      ;;
-    Linux)
-      echo "application-advisor-cli-linux"
-      ;;
-    MINGW*|MSYS*|CYGWIN*|Windows_NT)
-      echo "application-advisor-cli-windows"
-      ;;
-    *)
-      echo "Unsupported OS: $os" >&2
-      return 1
-      ;;
-  esac
-}
-
-# Download the pinned advisor CLI tar via Maven and extract into the cwd.
-# Must be invoked while cwd is the upgrade-example dir.
-download_advisor() {
-  local artifact tar_file
-  artifact=$(advisor_artifact_id) || exit 1
-  tar_file="${HOME}/.m2/repository/com/vmware/tanzu/spring/${artifact}/${ADVISOR_VERSION}/${artifact}-${ADVISOR_VERSION}.tar"
-
-  displayMessage "Download Spring Application Advisor CLI ${ADVISOR_VERSION} (${artifact})"
-  pei "mvn -U -q dependency:get -Dartifact=com.vmware.tanzu.spring:${artifact}:${ADVISOR_VERSION}:tar -Dtransitive=false"
-  pei "tar -xf \"${tar_file}\" -C ."
-  pei "./cli-binary/advisor --version"
+# Show the Application Advisor CLI version the Maven plugin resolves.
+# Must run under Java 25 (the plugin needs a modern JVM).
+advisorVersion() {
+  displayMessage "Spring Application Advisor, through the Maven plugin"
+  pei "${ADVISOR_PLUGIN} -Dcommand=\"--version\""
 }
 
 # Load helper functions and set initial variables
@@ -161,7 +134,7 @@ function useJava8 {
 
 # Switch to Java 25 and display version
 function useJava25 {
-  displayMessage "Switch to Java 25 for Spring Boot 3"
+  displayMessage "Switch to Java 25 for Spring Boot 4"
   pei "sdk use java $JAVA25_VERSION"
   pei "java -version"
 }
@@ -188,12 +161,12 @@ function springBootStop {
 # Check the health of the application
 function validateApp {
   displayMessage "Check application health"
-  pei "http :8080/actuator/health 2>/dev/null"
+  pei "http GET :8080/actuator/health 2>/dev/null"
 }
 
 function validateApp_1_5 {
   displayMessage "Check application health"
-  pei "http :8080/health 2>/dev/null"
+  pei "http GET :8080/health 2>/dev/null"
 }
 
 # Display memory usage of the application
@@ -210,7 +183,7 @@ function showMemoryUsage {
 
 function advisorBuildConfig {
   displayMessage "Capture some metadata about the application with Advisor"
-  pei "./cli-binary/advisor build-config get"
+  pei "${ADVISOR_PLUGIN} -Dcommand=\"build-config get\""
 }
 
 function showBuildConfigKeys {
@@ -242,12 +215,12 @@ function showBuildConfigTools {
 
 function advisorUpgradePlanGet {
   displayMessage "How hard could it be to upgrade? Let's get a plan!"
-  pei "./cli-binary/advisor upgrade-plan get"
+  pei "${ADVISOR_PLUGIN} -Dcommand=\"upgrade-plan get\""
 }
 
-function advisorUpgradePlanApplySquash {
+function advisorUpgradePlanApplySquashAll {
   displayMessage "Do all the upgrades!"
-  pei "./cli-binary/advisor upgrade-plan apply --squash 9"
+  pei "${ADVISOR_PLUGIN} -Dcommand=\"upgrade-plan apply --squash-all\""
 }
 
 # Display a message with a header
@@ -280,17 +253,17 @@ function statsSoFarTableColored {
   printf "${WHITE}%-35s %-25s %-15s %s${NC}\n" "Configuration" "Startup Time (seconds)" "(MB) Used" "(MB) Savings"
   echo -e "${WHITE}--------------------------------------------------------------------------------------------${NC}"
 
-  # Spring Boot 1.5 with Java 8 (Red - baseline)
+  # Spring Boot 2.7.3 with Java 8 (Red - baseline)
   MEM1=$(cat java8with1.5.log2)
   START1=$(startupTime 'java8with1.5.log')
   printf "${RED}%-35s %-25s %-15s %s${NC}\n" "Spring Boot 2.7.3 with Java 8" "$START1" "$MEM1" "-"
 
-  # Spring Boot 4.0 with Java25 (Green - improved)
+  # Spring Boot 4.1 with Java 25 (Green - improved)
   MEM2=$(cat java25with4.0.log2)
   PERC2=$(bc <<< "scale=2; 100 - ${MEM2}/${MEM1}*100")
   START2=$(startupTime 'java25with4.0.log')
   PERCSTART2=$(bc <<< "scale=2; 100 - ${START2}/${START1}*100")
-  printf "${GREEN}%-35s %-25s %-15s %s ${NC}\n" "Spring Boot 4.0 with Java 25" "$START2 ($PERCSTART2% faster)" "$MEM2" "$PERC2%"
+  printf "${GREEN}%-35s %-25s %-15s %s ${NC}\n" "Spring Boot 4.1 with Java 25" "$START2 ($PERCSTART2% faster)" "$MEM2" "$PERC2%"
 
   echo -e "${WHITE}--------------------------------------------------------------------------------------------${NC}"
   DEMO_STOP=$(date +%s)
@@ -309,8 +282,6 @@ useJava8
 talkingPoint
 cloneApp
 talkingPoint
-download_advisor
-talkingPoint
 springBootStart java8with1.5.log
 talkingPoint
 validateApp
@@ -318,6 +289,10 @@ talkingPoint
 showMemoryUsage "$(jps | grep 'PetClinicApplication' | cut -d ' ' -f 1)" java8with1.5.log2
 talkingPoint
 springBootStop
+talkingPoint
+useJava25
+talkingPoint
+advisorVersion
 talkingPoint
 advisorBuildConfig
 talkingPoint
@@ -333,9 +308,7 @@ showBuildConfigTools
 talkingPoint
 advisorUpgradePlanGet
 talkingPoint
-advisorUpgradePlanApplySquash
-talkingPoint
-useJava25
+advisorUpgradePlanApplySquashAll
 talkingPoint
 springBootStart java25with4.0.log
 talkingPoint
